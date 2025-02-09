@@ -1,0 +1,23 @@
+[package]
+name = "rp2040-template"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cortex-m-rt = "0.7.5"
+defmt = "0.3.10"
+defmt-rtt = "0.4.1"
+embedded-hal = "1.0.0"
+panic-halt = "1.0.0"
+rp-pico = "0.9.0"
+
+[profile.release]
+lto = true
+opt-level = "s"
+incremental = false
+codegen-units = 1
+debug = true # debuginfo is not flashed to the device
+
+[profile.dev]
+lto = true
+debug = true
