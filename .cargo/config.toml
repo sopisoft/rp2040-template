@@ -3,6 +3,7 @@ rustflags = [
   "-C", "linker=flip-link",
   "-C", "link-arg=-Tlink.x",
   "-C", "link-arg=--nmagic",
+  "-C", "link-arg=-Tdefmt.x"
 ]
 runner = "probe-rs run --chip RP2040"
 
