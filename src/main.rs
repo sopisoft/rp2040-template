@@ -3,15 +3,13 @@
 #![allow(internal_features)]
 #![feature(core_intrinsics)]
 
-use core::{
-    cell::RefCell,
-    ops::{Deref, DerefMut},
-};
+use core::{cell::RefCell, f32::consts::PI};
 
 use defmt::info;
 use defmt_rtt as _;
 
 use fugit::{MicrosDuration, MicrosDurationU32};
+use libm::cosf;
 
 use cortex_m::interrupt::{free, Mutex};
 use embedded_hal::pwm::SetDutyCycle;
@@ -33,13 +31,12 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 }
 
 type LedScheduler = (
-    pwm::Channel<pwm::Slice<pwm::Pwm4, pwm::FreeRunning>, pwm::B>,
-    timer::Alarm0,
-    MicrosDuration<u32>,
+    pwm::Channel<pwm::Slice<pwm::Pwm4, pwm::FreeRunning>, pwm::B>, // Channel
+    timer::Alarm0,                                                 // Alarm
+    MicrosDuration<u32>,                                           // Interval
+    f32,                                                           // Phase
 );
-type LedInfo = (u8, bool);
 static LED_SCHEDULER: Mutex<RefCell<Option<LedScheduler>>> = Mutex::new(RefCell::new(None));
-static LED_INFO: Mutex<RefCell<LedInfo>> = Mutex::new(RefCell::new((50, true)));
 
 #[hal::entry]
 fn main() -> ! {
@@ -80,9 +77,10 @@ fn main() -> ! {
         let mut alarm0 = timer.alarm_0().unwrap();
         let _ = alarm0.schedule(interval);
         let _ = alarm0.enable_interrupt();
+        let phase = 0.0;
         LED_SCHEDULER
             .borrow(cs)
-            .replace(Some((channel, alarm0, interval)));
+            .replace(Some((channel, alarm0, interval, phase)));
     });
 
     unsafe {
@@ -95,30 +93,20 @@ fn main() -> ! {
 #[interrupt]
 fn TIMER_IRQ_0() {
     free(|cs| {
-        if let Some((channel, alarm0, interval)) = LED_SCHEDULER.borrow(cs).borrow_mut().deref_mut()
-        {
-            let _ = alarm0.clear_interrupt();
+        let scheduler = LED_SCHEDULER.borrow(cs).take();
+        if let Some((mut channel, mut alarm0, interval, mut phase)) = scheduler {
+            alarm0.clear_interrupt();
 
-            let (mut duty_percent, mut is_fading_in) = LED_INFO.borrow(cs).borrow().deref();
-            if is_fading_in {
-                duty_percent += 1;
-                if duty_percent == 100 {
-                    is_fading_in = false;
-                    info!("Fading out");
-                }
-            } else {
-                duty_percent -= 1;
-                if duty_percent == 0 {
-                    is_fading_in = true;
-                    info!("Fading in");
-                }
-            }
-            let _ = duty_percent.min(100).max(0);
-
+            let duty_percent = (cosf(phase * PI) * 50.0 + 50.0) as u8;
             let _ = channel.set_duty_cycle_percent(duty_percent);
-            LED_INFO.borrow(cs).replace((duty_percent, is_fading_in));
+            info!("Duty: {}%", duty_percent);
 
-            let _ = alarm0.schedule(*interval);
+            let _ = phase += 0.025;
+            let _ = alarm0.schedule(interval);
+
+            LED_SCHEDULER
+                .borrow(cs)
+                .replace(Some((channel, alarm0, interval, phase)));
         }
     });
 }
